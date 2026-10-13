@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import ast
+import glob
 from PySide6.QtGui import (
     QIcon,
     QAction
@@ -115,50 +116,55 @@ class MainWindow(QMainWindow):
     def createDataTab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        powerStateData = QLabel()
-        powerStateData.setObjectName('StateData')
 
-        layout.addWidget(powerStateData)
+        powerState = QLabel()
+        gpuTemp = QLabel()
+        cpuTemp = QLabel()
 
+        powerState.setObjectName('StateData')
+        gpuTemp.setObjectName('GPUTemp')
+        cpuTemp.setObjectName('CPUTemp')
+
+        layout.addWidget(powerState)
+        layout.addWidget(gpuTemp)
+        layout.addWidget(cpuTemp)
         return tab
 
 
     def dgpu_poller_tick(self):
-        print(get_dgpu_status())
+        #Update Data Tab
+        target_powerState = self.tabs.findChild(QLabel, 'StateData')
+        target_gpuTemp = self.tabs.findChild(QLabel, 'GPUTemp')
+        target_cpuTemp = self.tabs.findChild(QLabel, 'CPUTemp')
+        if target_powerState:
+            target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
+        if target_gpuTemp:
+            target_gpuTemp.setText(f'GPU Temp: {get_dgpu_temp().strip()}°C')
+        if target_cpuTemp:
+            target_cpuTemp.setText(f'CPU Temp: {get_cpu_pack_temp()}°C')
+        #Update Icon/State for Main
         if get_dgpu_status()[0] == 'Active':
             app.setWindowIcon(active_icon)
             self.tray_icon.setIcon(active_icon)
             self.tray_icon.setToolTip('Active')
             self.tray_icon.show()
-            target_powerState = self.tabs.findChild(QLabel, "StateData")
-            if target_powerState:
-                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
         if get_dgpu_status()[0] == 'Unknown':
             app.setWindowIcon(confused_icon)
             self.tray_icon.setIcon(confused_icon)
             self.tray_icon.setToolTip('Unknown')
             self.tray_icon.show()            
-            target_powerState = self.tabs.findChild(QLabel, "StateData")
-            if target_powerState:
-                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
         if get_dgpu_status()[0] == 'Idle':
             app.setWindowIcon(idle_icon)
             self.tray_icon.setIcon(idle_icon)
             self.tray_icon.setToolTip('Idle')
             self.tray_icon.show()
-            target_powerState = self.tabs.findChild(QLabel, "StateData")
-            if target_powerState:
-                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
         if get_dgpu_status()[0] == 'Low Power':
             app.setWindowIcon(low_power_icon)
             self.tray_icon.setIcon(low_power_icon)
             self.tray_icon.setToolTip('Low Power')
             self.tray_icon.show()
-            target_powerState = self.tabs.findChild(QLabel, "StateData")
-            if target_powerState:
-                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
 
-def run_cmd(cmd: list) -> str:
+def run_cmd(cmd: list, **kwargs) -> str:
     return subprocess.run(cmd, capture_output=True, text=True).stdout
 
 def get_help():
@@ -201,6 +207,16 @@ def set_led_current(led: str) -> None:
     cmd = f'asusctl leds set {led}'
     run_cmd(cmd.split())
 
+def get_cpu_pack_temp() -> int:
+    files = glob.glob('/sys/class/hwmon/hwmon*/temp1_input')
+    res = subprocess.run(['cat', files[0]], capture_output=True, text=True)
+    return int(int(res.stdout.strip())/1000)
+
+def get_dgpu_temp() -> str:
+    cmd = 'nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader'
+    text = f'{run_cmd(cmd.split())}'
+    return text
+    
 def get_dgpu_status() -> str:
     cmd = "nvidia-smi --query-gpu=pstate --format=csv,noheader"
     text = run_cmd(cmd.split()).strip()
