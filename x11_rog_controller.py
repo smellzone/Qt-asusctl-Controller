@@ -1,76 +1,127 @@
 import subprocess
 import sys
 import ast
-from PySide6.QtGui import QIcon, QAction
-from PySide6.QtWidgets import QApplication, QWidget, QComboBox, QVBoxLayout, QLabel, QSlider, QSystemTrayIcon, QMenu
-from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtGui import (
+    QIcon,
+    QAction
+)
+from PySide6.QtWidgets import (
+    QApplication, 
+    QWidget,
+    QComboBox,
+    QVBoxLayout,
+    QLabel,
+    QSlider,
+    QSystemTrayIcon,
+    QMenu,
+    QTabWidget,
+    QMainWindow
+)
+from PySide6.QtCore import (
+    Qt,
+    QTimer,
+    QSize
+)
 
-class MainWindow(QWidget):
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Qt asusctl Controller")
-
-        layout = QVBoxLayout(self)
-        self.currentProfile = QLabel(f'Current Profile: {get_profile_current()}', self)
-        self.currentChargeLimit = QLabel(f'Charge Limit: {get_battery_charge_limit()}%')
-        self.chargeLimitSlider = QSlider(Qt.Horizontal)
-        self.profileCombo = QComboBox()
-        self.currentLed = QLabel(f'Keyboard Brightness: {get_led_current()}')
-        self.ledCombo = QComboBox()
+        #Power State Poller
         self.dgpu_poller = QTimer(self)
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_menu = QMenu()
-        quit_action = QAction('Quit', self)
-        show_action = QAction('Show Window', self)
-
-        quit_action.triggered.connect(QApplication.instance().quit)
-        show_action.triggered.connect(self.show)
-
-        self.tray_menu.addAction(quit_action)
-        self.tray_menu.addSeparator()
-        self.tray_menu.addAction(show_action)
-
-        self.tray_icon.setContextMenu(self.tray_menu)
-
-        for profile in get_profile_list():
-            self.profileCombo.addItem(profile)
-        for led_setting in ['off', 'low', 'med', 'high']:
-            self.ledCombo.addItem(led_setting)
-        self.profileCombo.currentIndexChanged.connect(self.on_profile_changed)
-        profileIndex = self.profileCombo.findText(get_profile_current())
-        self.profileCombo.setCurrentIndex(profileIndex)
-        self.ledCombo.currentIndexChanged.connect(self.on_led_changed)
-        ledIndex = self.ledCombo.findText(get_led_current())
-        self.ledCombo.setCurrentIndex(ledIndex)
-        self.chargeLimitSlider.setRange(0, 100)
-        self.chargeLimitSlider.setValue(int(get_battery_charge_limit()))
-        self.chargeLimitSlider.valueChanged.connect(self.on_charge_limit_change)
         self.dgpu_poller.setInterval(500)
         self.dgpu_poller.timeout.connect(self.dgpu_poller_tick)
         self.dgpu_poller.start()
 
-        layout.addWidget(self.currentProfile)
-        layout.addWidget(self.profileCombo)
-        layout.addWidget(self.currentChargeLimit)
-        layout.addWidget(self.chargeLimitSlider)
-        layout.addWidget(self.currentLed)
-        layout.addWidget(self.ledCombo)
+        self.setWindowTitle("Qt asusctl Controller")
 
-    def on_profile_changed(self, index):
-        set_profile_current(self.profileCombo.currentText())
-        self.currentProfile.setText(f'Current Profile: {get_profile_current()}')
-        print(f"Selected index: {index}, Text: {self.profileCombo.currentText()}")
+        self.tabs = QTabWidget()
 
-    def on_charge_limit_change(self):
-        set_battery_charge_limit(set_battery_charge_limit(self.chargeLimitSlider.value()))
-        self.currentChargeLimit.setText(f'Charge Limit {get_battery_charge_limit()}%')
-        print(f'Charge Limit Set to {self.chargeLimitSlider.value()}')
+        self.tabs.addTab(self.createMainTab(), 'Main')
+        self.tabs.addTab(self.createDataTab(), 'Data')
 
-    def on_led_changed(self):
-        set_led_current(self.ledCombo.currentText())
-        print(f'Led setting now: {get_led_current()}')
-        self.currentLed.setText(f'Keyboard Brightness: {get_led_current()}')
+        #System Tray Stuff/Actions
+        quit_action = QAction('Quit', self)
+        show_action = QAction('Show Window', self)
+        quit_action.triggered.connect(QApplication.instance().quit)
+        show_action.triggered.connect(self.show)    
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_menu = QMenu()
+        self.tray_menu.addAction(quit_action)
+        self.tray_menu.addSeparator()
+        self.tray_menu.addAction(show_action)
+        self.tray_icon.setContextMenu(self.tray_menu)
+
+        self.setCentralWidget(self.tabs)
+
+    def createMainTab(self) -> QWidget: 
+        def on_profile_changed(index):
+            set_profile_current(profileCombo.currentText())
+            print(f"Selected index: {index}, Text: {profileCombo.currentText()}")
+
+        def on_charge_limit_change():
+            set_battery_charge_limit(set_battery_charge_limit(chargeLimitSlider.value()))
+            currentChargeLimit.setText(f'Charge Limit {get_battery_charge_limit()}%')
+            print(f'Charge Limit Set to {self.chargeLimitSlider.value()}')
+
+        def on_led_changed():
+            set_led_current(ledCombo.currentText())
+            print(f'Led setting now: {get_led_current()}')
+
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        #Labels
+        currentProfileLabel = QLabel('Current Profile:')
+        currentChargeLimitLabel = QLabel('Charge Limit:')
+        currentLEDLabel = QLabel('Current LED Level:')
+
+        #Actionable Items
+        profileCombo = QComboBox()
+        chargeLimitSlider = QSlider(Qt.Horizontal)
+        ledCombo = QComboBox()
+        
+        #Setup Pulldowns
+        for profile in get_profile_list():
+            profileCombo.addItem(profile)
+        for led_setting in ['off', 'low', 'med', 'high']:
+            ledCombo.addItem(led_setting)
+        profileCombo.currentIndexChanged.connect(on_profile_changed)
+        
+        #Get current state for profile pulldown
+        profileIndex = profileCombo.findText(get_profile_current())
+        profileCombo.setCurrentIndex(profileIndex)
+        ledCombo.currentIndexChanged.connect(on_led_changed)
+        
+        #Get current state for led pulldown
+        ledIndex = ledCombo.findText(get_led_current())
+        ledCombo.setCurrentIndex(ledIndex)
+
+        #Setup Charge Limit Slider
+        chargeLimitSlider.setRange(0, 100)
+        #Get current setting and set slider to position
+        chargeLimitSlider.setValue(int(get_battery_charge_limit()))
+        chargeLimitSlider.valueChanged.connect(on_charge_limit_change)
+
+        #Apply Layout
+        layout.addWidget(currentProfileLabel)
+        layout.addWidget(profileCombo)
+        layout.addWidget(currentChargeLimitLabel)
+        layout.addWidget(chargeLimitSlider)
+        layout.addWidget(currentLEDLabel)
+        layout.addWidget(ledCombo)
+        return tab
+    
+    def createDataTab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        powerStateData = QLabel()
+        powerStateData.setObjectName('StateData')
+
+        layout.addWidget(powerStateData)
+
+        return tab
+
 
     def dgpu_poller_tick(self):
         print(get_dgpu_status())
@@ -79,21 +130,33 @@ class MainWindow(QWidget):
             self.tray_icon.setIcon(active_icon)
             self.tray_icon.setToolTip('Active')
             self.tray_icon.show()
+            target_powerState = self.tabs.findChild(QLabel, "StateData")
+            if target_powerState:
+                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
         if get_dgpu_status()[0] == 'Unknown':
             app.setWindowIcon(confused_icon)
             self.tray_icon.setIcon(confused_icon)
             self.tray_icon.setToolTip('Unknown')
-            self.tray_icon.show()
+            self.tray_icon.show()            
+            target_powerState = self.tabs.findChild(QLabel, "StateData")
+            if target_powerState:
+                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
         if get_dgpu_status()[0] == 'Idle':
             app.setWindowIcon(idle_icon)
             self.tray_icon.setIcon(idle_icon)
             self.tray_icon.setToolTip('Idle')
             self.tray_icon.show()
+            target_powerState = self.tabs.findChild(QLabel, "StateData")
+            if target_powerState:
+                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
         if get_dgpu_status()[0] == 'Low Power':
             app.setWindowIcon(low_power_icon)
             self.tray_icon.setIcon(low_power_icon)
             self.tray_icon.setToolTip('Low Power')
             self.tray_icon.show()
+            target_powerState = self.tabs.findChild(QLabel, "StateData")
+            if target_powerState:
+                target_powerState.setText(f'GPU Raw State: {get_dgpu_status()[1]}')
 
 def run_cmd(cmd: list) -> str:
     return subprocess.run(cmd, capture_output=True, text=True).stdout
@@ -141,14 +204,31 @@ def set_led_current(led: str) -> None:
 def get_dgpu_status() -> str:
     cmd = "nvidia-smi --query-gpu=pstate --format=csv,noheader"
     text = run_cmd(cmd.split()).strip()
-    if text == 'P0' or text ==  'P3':
-        return ("Active", 'P0')
-    elif text == 'P8':
-        return ("Idle", 'P8')
-    elif text == 'P5':
-        return ("Low Power", 'P5')
-    else:
-        return ("Unknown", text)
+    match text:
+        case 'P0':
+            return ('Active', text)
+        case 'P1':
+            return ('Active', text)
+        case 'P2':
+            return ('Active', text)
+        case 'P3':
+            return ('Active', text)
+        case 'P4':
+            return ('Low Power', text)
+        case 'P5':
+            return ('Low Power', text)
+        case 'P6':
+            return ('Low Power', text)
+        case 'P7':
+            return ('Low Power', text)
+        case 'P8':
+            return ('Idle', text)
+        case 'P9':
+            return ('Idle', text)
+        case 'P10':
+            return ('Idle', text)
+        case _:
+            return ('Unknown', text)
 
 if __name__ == "__main__":   
     app = QApplication(sys.argv)
